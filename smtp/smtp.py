@@ -1,15 +1,11 @@
 __author__ = 'Аня'
-import socket
 import base64
-class MyError(Exception):
-    def __init__ (self,text):
-       self.txt =text
 class smtpClient:
-    def __init__ (self):
+    def __init__ (self,sock):
         self.connect = False
         self.auth=False
         self.set=[]
-        self.sock = socket.socket()
+        self.sock = sock
     def sendCommandToServer(self,com):
         self.sock.send(com)
         return self.sock.recv(1024)
@@ -21,35 +17,31 @@ class smtpClient:
         answer = self.sock.recv(1024)
         self.connect=True
         if(answer[0:3]!=b'220'):
-            print('Ошибка в команде connect!')
+            self.connect=False
             return False
         return True
 
     def helo(self,string):
         answer=self.sendCommandToServer(b'HELO '+ bytes(string,encoding = 'utf-8')+b'\r\n')
         if(answer[0:3]!=b'250'):
-            print('Ошибка в команде helo')
             return False
         return True
     def setAuth(self,login,password):
         answer=self.sendCommandToServer(b'AUTH LOGIN\r\n')
         if(answer[0:3]!=b'334'):
             self.connect=False
-            print('Ошибка при аутотенфикации')
             return False
         else:
             login=self.encrBase64(login)
             answer=self.sendCommandToServer(login)
             if(answer[0:3]!=b'334'):
                 self.connect=False
-                print('Ошибка в команде login')
                 return False
             else:
                 password=self.encrBase64(password)
                 answer=self.sendCommandToServer(password)
                 if(answer[0:3]!=b'235'):
                     self.connect=False
-                    print('Ошибка в команде password')
                     return False
             self.auth=True
             return True
@@ -61,7 +53,7 @@ class smtpClient:
         stringNew=bit_com+bytes(string,encoding = 'utf-8')+b'\r\n'
         answer=self.sendCommandToServer(stringNew)
         if(answer[0:3]!=b'250'):
-            print('Ошибка в адресе '+ com+' '+string)
+            #print('Ошибка в адресе '+ com+' '+string)
             return False
         return True
     def bccCcRcpt(self,string):
@@ -107,13 +99,6 @@ class smtpClient:
         self.sendUsers(ccString)
         data=self.data(mailFrom,rcptTo,ccString,bccString,subject,message)
         send=self.sendData(data)
-        if(send==True):
-            str="Сообщение отправлено: "
-            for i in self.set:
-                str=str+" "+i
-            print(str)
-        else:
-            print("Сообщение НЕ отправлено")
         return send
     def quit(self):
         answer=self.sendCommandToServer(b'QUIT\r\n')
@@ -121,73 +106,12 @@ class smtpClient:
             self.sock.close()
             self.auth=False
             self.connect=False
-            print('Соединение разорвано!')
             return True
         else:
-            print('Ошибка в команде quit')
             return False
 
     def rset(self):
         self.auth=False
         self.connect=False
-
-
-if __name__ == '__main__':
-    print ('Введите команду: connect- установление соединения\r\nquit- разрыв соединения\r\nsend- отправка сообщения\r\nexit-выход из программы')
-    client=smtpClient()
-    while(1):
-        try:
-            command=input('Введите команду:')
-            if(command=='connect'):
-                if(client.connect==True):
-                    client.rset()
-                    print("Предыдущее соединение разорвано")
-                server=input('Введите название сервера: ')
-                client.sock = socket.socket()
-                    #smtp.rambler.ru
-                try:
-                    if(client.comConnect(server,25) and client.helo('rambler.ru')):
-                        login=input('Введите логин')
-                        password=input('Введите пароль')
-                        if(client.setAuth(login,password)):
-                            print("Аутотенфикация успешна")
-                except socket.gaierror:
-                    print("Ошибка При вызове функции connect!\r\n")
-                except EOFError:
-                    print("Ошибка ввода!\r\n")
-            elif(command=='send'):
-                if(client.auth==True and client.connect==True):
-                    try:
-                        mailFrom=input('Введите адрес отправителя')
-                        rcptTo=input('Введите адрес получателЕй через запятую (,)')
-                        bccString=input('Введите bcc адреса через запятую (,)')
-                        ccString=input('Введите cc адреса через запятую (,)')
-                        subject=input('Введите тему сообщения')
-                        message=input('Введите сообщение')
-                        client.sendMessage(mailFrom,rcptTo,ccString, bccString, subject, message)
-                    except EOFError:
-                        print("Ошибка ввода!\r\n")
-                        continue
-                    except  UnicodeEncodeError:
-                        print ('Ошибка при кодировании в unicode!')
-                        continue
-                else:
-                    print('Ошибка. Для начала надо установить соединение. Команда CONNECT!')
-            elif(command=='quit'):
-                if(client.connect==True):
-                    client.quit()
-                else:
-                    print('Ошибка. Соединение не установлено.')
-            elif(command=='exit'):
-                    print('Выход их программы')
-                    break
-            else:
-                print('Ошибка. Такой команды нет!')
-        except EOFError:
-            print("Ошибка ввода!\r\n")
-            client.connect=False
-            client.auth=False
-            break
-
 
 

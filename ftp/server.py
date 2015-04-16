@@ -6,17 +6,28 @@ import time
 import random
 class User :
     def __init__(self,user_id):
-        self.dir="\\"
+        self.dir=""
         self.user_id=user_id
         self.type="binary"
         self.name=""
         self.password=""
-    def auth(self,login,password):
+    def authUser(self,login,password):
         self.name=login
         self.password=password
 class Server:
     def __init__(self,directory):
         self.users={}
+        self.activeUsers=[]
+        self.readFileUsers()
+        self.directory=directory
+        f = open('protocol.txt', 'w')
+        f.write("id_______логин_______комманда____количество клиентов\r\n")
+        f.close
+    def writeProtocolFile(self,command,User):
+        f = open('protocol.txt', 'a')
+        f.write("%f______%s______%s______%d\r\n" %(User.user_id,User.name,command,len(self.activeUsers)))
+        f.close
+    def readFileUsers(self):
         try:
             f = open('user.txt', 'r')
             n=f.readlines()
@@ -25,10 +36,9 @@ class Server:
                 i=i.split(',')
                 self.users[i[0]]=i[1]
             f.close
+            return True
         except IOError:
-            print ("No file")
-        self.activeUsers=[]
-        self.directory=directory
+            return False
     def hasUser(self,login,password):
         if(self.users.get(login)==password):
             return True
@@ -36,14 +46,6 @@ class Server:
             return True
         else:
             return False
-    def setPath(self,pathFile,userDir):
-        if(pathFile[0]=="\\"):
-            pathFile=self.directory+pathFile
-        elif(userDir=="\\"):
-            pathFile=self.directory+userDir+pathFile
-        else:
-            pathFile=self.directory+userDir+"\\"+pathFile
-        return pathFile
     def deleteFile(self,pathFile,userDir):
         pathFile=self.setPath(pathFile,userDir)
         try:
@@ -63,47 +65,34 @@ class Server:
             return True
         except Exception:
             return False
-    def setDirAbsPath(self,dir):
-        currDir=self.directory
-        dir=dir[1:].split("\\")
-        for i in dir:
-            try:
-               files = os.listdir(currDir)
-               for j in files:
-                    if(j==i):
-                        currDir=currDir+"\\"+j
-                    if (currDir==self.directory and j==files[len(files)-1]):
-                        return False
-            except FileNotFoundError:
-                print("File is not found")
-        return True
-    def setDirPath(self,dir,userDir):
-        currDir=self.directory
-        if(userDir!="\\"):
-            currDir=self.directory+userDir
+    def mkDir(self,pathFile,userDir):
+        pathDir=self.setPath(pathFile,userDir)
         try:
-            files = os.listdir(currDir)
-            for i in files:
-                if(i==dir):
-                    return True
-        except FileNotFoundError:
-            print("File is not found")
-        return False
-    def setDir(self,dir,userDir):
-        if(dir[0]=="\\"):
-            return self.setDirAbsPath(dir)
+            os.makedirs(pathDir)
+            return True
+        except Exception:
+            return False
+    def setPath(self,pathFile,userDir):
+        if(pathFile[0]=="\\"):
+            pathFile=self.directory+pathFile
+        elif(len(userDir)!=0):
+            pathFile=self.directory+"\\"+userDir+"\\"+pathFile
         else:
-            return self.setDirPath(dir,userDir)
+            pathFile=self.directory+"\\"+pathFile
+        return pathFile
     def deleteUser(self,user_id):
         for i in self.activeUsers:
             if(i.user_id==user_id):
                 self.activeUsers.remove(i)
+                self.writeProtocolFile("отключение",i)
     def auth(self,login,password,user_id):
         for i in self.activeUsers:
             if(i.user_id==user_id):
-                i.auth(login,password)
+                i.authUser(login,password)
     def newUser(self,user_id):
-        self.activeUsers.append(User(user_id))
+        newUser=User(user_id)
+        self.activeUsers.append(newUser)
+        self.writeProtocolFile("подключение",newUser)
     def setType(self,user_id,type):
         for i in self.activeUsers:
             if(i.user_id==user_id):
@@ -113,6 +102,36 @@ class Server:
                     i.type="asci"
             return True
         return False
+    def serverList(self,flag,userDir):
+        data=""
+        path=server.directory+"\\"+userDir
+        files = os.listdir(path)
+        for i in files:
+            if(flag==False):
+                data=data+i+"\n"
+            else:
+                data=data+self.serverNlst(path,i)+"\n"
+        return data
+    def serverNlst(self,path,i):
+        pathFile=path+"\\"+i
+        metadata=os.stat(pathFile)
+        timeFile=time.localtime(metadata.st_ctime)
+        cttime='%d.%d.%d' %(timeFile.tm_mday,timeFile.tm_mon,timeFile.tm_year)
+        timeFile=time.localtime(metadata.st_mtime)
+        mttime='%d.%d.%d' %(timeFile.tm_mday,timeFile.tm_mon,timeFile.tm_year)
+        data='%s    %s    %s    %d' % (pathFile,cttime,mttime,metadata.st_size)
+        return data
+    def serverSetDir(self,dir,userDir):
+        if(dir[0]=="\\"):
+            currDir=self.directory+dir
+        else:
+            currDir=self.directory+"\\"+userDir+"\\"+dir
+        try:
+            os.listdir(currDir)
+            return True
+        except FileNotFoundError:
+            return False
+
 class SocketThread(threading.Thread):
     def __init__(self, conn, addr):
         self.conn = conn
@@ -136,6 +155,7 @@ class SocketThread(threading.Thread):
             command=command[0:len(command)-2].decode("utf-8")
             command=command.split(" ")
             print(command)
+            server.writeProtocolFile(command,self.user)
             if(command[0]=='QUIT'):
                 server.deleteUser(self.user.user_id)
                 self.conn.send(b'221 Goodbye.\r\n')
@@ -189,26 +209,16 @@ class SocketThread(threading.Thread):
             self.conn.send(b'502 Command not implemented\r\n')
     def mkDir(self,path):
         if(self.id==True):
-            if(path[0]=="\\"):
-                path=server.directory+path
-            elif(self.user.dir=="\\"):
-                path=server.directory+self.user.dir+path
-            else:
-                path=server.directory+self.user.dir+"\\"+path
-            os.makedirs(path)
-            self.conn.send(b'257 Folder '+path.encode("utf-8")+b' create\r\n')
+             if(server.mkDir(path,self.user.dir)):
+                self.conn.send(b'257 Directory '+path.encode("utf-8")+b' create\r\n')
+             else:
+                 self.conn.send(b'550 Directory '+path.encode("utf-8")+b' not create\r\n')
         else:
             self.conn.send(b'530 Please login with USER and PASS\r\n')
-    def setPath(self,path):
-        if(path[0]=="\\"):
-            path=self.user.dir+path
-        else:
-            path=self.user.dir+"\\"+path
-        return path
+
     def deleteDir(self,path):
         if(self.id==True):
             if(server.deleteDir(path,self.user.dir)):
-                path=self.setPath(path)
                 self.conn.send(b'250 Directory '+path.encode("utf-8")+b' deleted\r\n')
             else:
                 self.conn.send(b'550 Directory '+path.encode("utf-8")+b' not found\r\n')
@@ -217,99 +227,17 @@ class SocketThread(threading.Thread):
     def delete(self,path):
         if(self.id==True):
             if(server.deleteFile(path,self.user.dir)):
-                path=self.setPath(path)
                 self.conn.send(b'250 File '+path.encode("utf-8")+b' deleted\r\n')
             else:
                 self.conn.send(b'550 File '+path.encode("utf-8")+b' not found\r\n')
         else:
             self.conn.send(b'530 Please login with USER and PASS\r\n')
-    def comStor(self,file):
-        path=server.directory+self.user.dir+file
-        if(self.user.dir!="\\"):
-            path=server.directory+self.user.dir+"\\"+file
-        if(self.port==True):
-            if(self.user.type=="binary"):
-                f=open(path,"wb")
-                self.conn.send(b'150 Accepted data connection\r\n')
-                while True:
-                    data=self.clientSock.recv(size)
-                    if not data: break
-                    f.write(data)
-                f.close()
-            else:
-                try:
-                    f=open(path,"wt")
-                    self.conn.send(b'150 Accepted data connection\r\n')
-                    data = self.clientSock.recv(size)
-                    while True:
-                        if not data: break
-                        f.write(data.decode("utf-8"))
-                        data = self.clientSock.recv(size)
-                    f.close()
-                except Exception:
-                    self.conn.send(b'406 TYPE must binary\r\n')
-                    f.close()
-                    os.remove(path)
-            self.conn.send(b'226 Transfer complete\r\n')
-            self.clientSock.close()
-        else:
-            self.conn.send(b'425 Unable to build data connection: Connection refused\r\n')
-    def comRetr(self,file):
-        if(self.port==True):
-            path=server.directory+self.user.dir+file
-            if(self.user.dir!="\\"):
-                path=server.directory+self.user.dir+"\\"+file
-            try:
-                if(self.user.type=="binary"):
-                    f=open(path,"rb")
-                    self.conn.send(b'150 Accepted data connection\r\n')
-                    while True:
-                        data = f.read(1024)
-                        print(data)
-                        if not data: break
-                        self.clientSock.send(data)
-                    f.close()
-                    self.conn.send(b'226 Transfer complete\r\n')
-                else:
-                    try:
-                        f=open(path,"r")
-                        data = f.read(1024)
-                        self.conn.send(b'150 Accepted data connection\r\n')
-                        while True:
-                            if not data: break
-                            self.clientSock.send((data).encode("latin1"))
-                            print((data).encode("latin1"))
-                            data = f.read(1024)
-                        f.close()
-                        self.conn.send(b'226 Transfer complete\r\n')
-                    except Exception:
-                        self.conn.send(b'406 TYPE must binary\r\n')
-                self.clientSock.close()
-            except Exception:
-                self.conn.send(b'500 File not found\r\n')
-        else:
-            self.conn.send(b'425 Unable to build data connection: Connection refused\r\n')
+
     def list(self,flag):
         if(self.port==True):
             self.conn.send(b'150 Accepted data connection\r\n')
-            data=""
-            path=server.directory
-            if(len(self.user.dir)!=1):
-                path=server.directory+"\\"+self.user.dir[1:]
             try:
-                files = os.listdir(path)
-                for i in files:
-                    if(flag==False):
-                        data=data+i+"\n"
-                    else:
-                        pathFile=path+"\\"+i
-                        metadata=os.stat(pathFile)
-                        timeFile=time.localtime(metadata.st_ctime)
-                        cttime='%d.%d.%d' %(timeFile.tm_mday,timeFile.tm_mon,timeFile.tm_year)
-                        timeFile=time.localtime(metadata.st_mtime)
-                        mttime='%d.%d.%d' %(timeFile.tm_mday,timeFile.tm_mon,timeFile.tm_year)
-                        file='%s    %s    %s    %d' % (pathFile,cttime,mttime,metadata.st_size)
-                        data=data+file+"\n"
+                data=server.serverList(flag,self.user.dir)
                 self.clientSock.send(data.encode("utf-8")+b'\r\n')
                 self.clientSock.close()
                 self.conn.send(b'226 Transfer complete\r\n')
@@ -334,36 +262,33 @@ class SocketThread(threading.Thread):
             self.conn.send(b'530 Please login with USER and PASS\r\n')
     def cwdUp(self):
         if(self.id==True):
-            if(self.user.dir!="\\"):
-                list=self.user.dir[1:].split("\\")
-                self.user.dir="\\"
-                for i in list:
-                    if(i!=list[len(list)-1]):
-                        if(len(self.user.dir)!=1):
-                            self.user.dir=self.user.dir+"\\"+i
-                        else:
-                            self.user.dir=self.user.dir+i
-            self.conn.send(b'250 Current directory is '+self.user.dir.encode("utf-8")+b'\r\n')
+            list=self.user.dir.split("\\")
+            list=list[:len(list)-1]
+            self.user.dir=""
+            for i in list:
+                self.user.dir=self.user.dir+i
+                if(i!=list[len(list)-1]):
+                    self.user.dir=self.user.dir+"\\"
+            self.conn.send(b'250 Current directory is \\'+self.user.dir.encode("utf-8")+b'\r\n')
         else:
             self.conn.send(b'530 Please login with USER and PASS\r\n')
     def cwd(self,dir):
         if(self.id==True):
-            if(server.setDir(dir,self.user.dir)==True):
+            if(server.serverSetDir(dir,self.user.dir)==True):
                 if(dir[0]=="\\"):
+                    self.user.dir=dir[1:]
+                elif(len(self.user.dir)==0):
                     self.user.dir=dir
                 else:
-                    if(self.user.dir!="\\"):
-                        self.user.dir=self.user.dir+"\\"+dir
-                    else:
-                        self.user.dir=self.user.dir+dir
-                self.conn.send(b'250 Current directory is '+self.user.dir.encode("utf-8")+b'\r\n')
+                    self.user.dir=self.user.dir+"\\"+dir
+                self.conn.send(b'250 Current directory is \\'+self.user.dir.encode("utf-8")+b'\r\n')
             else:
                 self.conn.send(b'502 Command not implemented\r\n')
         else:
             self.conn.send(b'530 Please login with USER and PASS\r\n')
     def pwd(self):
         if(self.id==True):
-            direct='"%s" is the current directory\r\n' % self.user.dir
+            direct='\\"%s" is the current directory\r\n' % self.user.dir
             self.conn.send(direct.encode("utf-8"))
         else:
             self.conn.send(b'530 Please login with USER and PASS\r\n')
@@ -377,12 +302,81 @@ class SocketThread(threading.Thread):
             else:
                 self.conn.send(b'230 User '+ login.encode("utf-8")+ b' logged in\r\n')
                 server.auth(login,password,self.user.user_id)
-                self.user.auth(login,password)
+                self.user.authUser(login,password)
                 self.id=True
         else:
             self.conn.send(b'You are already logged in\r\n')
+    def retrFileBinary(self,path):
+        f=open(path,"rb")
+        self.conn.send(b'150 Accepted data connection\r\n')
+        while True:
+            data = f.read(1024)
+            if not data: break
+            self.clientSock.send(data)
+        f.close()
+    def retrFileAscii(self,path):
+        try:
+            f=open(path,"r")
+            data = f.read(1024)
+            self.conn.send(b'150 Accepted data connection\r\n')
+            while True:
+                if not data: break
+                self.clientSock.send((data).encode("latin1"))
+                data = f.read(1024)
+            f.close()
+            return True
+        except Exception:
+            return False
 
+    def comRetr(self,file):
+        path=server.setPath(file,self.user.dir)
+        if(self.port==True):
+            try:
+                if(self.user.type=="binary"):
+                    self.retrFileBinary(path)
+                elif(self.retrFileAscii(path)==False):
+                    self.conn.send(b'406 TYPE must binary\r\n')
+                self.conn.send(b'226 Transfer complete\r\n')
+                self.clientSock.close()
+            except Exception:
+                self.conn.send(b'500 File not found\r\n')
+        else:
+            self.conn.send(b'425 Unable to build data connection: Connection refused\r\n')
+    def comStor(self,file):
+        path=server.setPath(file,self.user.dir)
+        if(self.port==True):
+            if(self.user.type=="binary"):
+                self.storeFileBinary(path)
+            elif(self.storeFileAscii(path)==False):
+                self.conn.send(b'406 TYPE must binary\r\n')
+            self.conn.send(b'226 Transfer complete\r\n')
+            self.clientSock.close()
+        else:
+            self.conn.send(b'425 Unable to build data connection: Connection refused\r\n')
 
+    def storeFileBinary(self,path):
+        f=open(path,"wb")
+        self.conn.send(b'150 Accepted data connection\r\n')
+        while True:
+            data=self.clientSock.recv(size)
+            if not data: break
+            f.write(data)
+        f.close()
+    def storeFileAscii(self,path):
+        try:
+            f=open(path,"wt")
+            self.conn.send(b'150 Accepted data connection\r\n')
+            data = self.clientSock.recv(size)
+            while True:
+                if not data: break
+                f.write(data.decode("utf-8"))
+                data = self.clientSock.recv(size)
+            f.close()
+            return True
+        except Exception:
+            f.close()
+            os.remove(path)
+            return False
 
 
 size=1024
